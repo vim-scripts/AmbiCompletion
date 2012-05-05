@@ -1,0 +1,20 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=4048
+
+Description:
+  This script provides an ambiguous completion function within buffer words.
+  For those who are forgetful.
+
+  This script completes a word with not only starts-with match but also ends-with and contains match.
+
+  This is a fork of Word Fuzzy Completion.
+  vimscript #3857
+
+  THIS IS ALPHA QUALITY.
+
+Usage:
+  Set completefunc to g:AmbiCompletion.
+
+  like :set completefunc=g:AmbiCompletion
+
+  If you have +python, you will get more speed.
+
