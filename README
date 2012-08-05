@@ -1,7 +1,7 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=4048
 
 Description:
-  This script provides an ambiguous completion function within buffer words.
+  This script provides an ambiguous completion functionality.
   For those who are forgetful.
 
   This script completes a word with not only starts-with match but also ends-with and contains match.
@@ -17,4 +17,23 @@ Usage:
   like :set completefunc=g:AmbiCompletion
 
   If you have +python, you will get more speed.
+
+Variables:
+
+  (A right hand side value is a default value.)
+
+  g:AmbiCompletion_richerSupportForMultibyte = 0
+      gives up completion using Python (even though you have +python),
+      and enables richer extraction of multibyte characters.
+
+          0: Quicker and poorer multibyte support.
+          1: x10 Slower and richer multibyte support.
+
+  g:AmbiCompletion_allBuffers = 0
+      decides from where to collect word samples.
+
+          0: Collects from only in the current buffer.
+          1: Collects from all over the buffers.
+
+      Note this value is ignored when recher support for multibyte is enabled.
 

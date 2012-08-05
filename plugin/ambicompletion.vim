@@ -2,7 +2,7 @@
 "
 " Maintainer: Shuhei Kubota <kubota.shuhei+vim@gmail.com>
 " Description:
-"   This script provides an ambiguous completion function within buffer words.
+"   This script provides an ambiguous completion functionality.
 "   For those who are forgetful.
 "
 "   This is a fork of Word Fuzzy Completion.
@@ -17,7 +17,7 @@
 "
 "   If you have +python, you will get more speed. (but poorer multibyte completion)
 "
-" Variables
+" Variables:
 "
 "   (A right hand side value is a default value.)
 "
@@ -25,12 +25,24 @@
 "       gives up completion using Python (even though you have +python),
 "       and enables richer extraction of multibyte characters.
 "
-"           0: Default. Quicker and poorer multibyte support.
+"           0: Quicker and poorer multibyte support.
 "           1: x10 Slower and richer multibyte support.
 "
+"   g:AmbiCompletion_allBuffers = 0
+"       decides from where to collect word samples.
+"
+"           0: Collects from only in the current buffer.
+"           1: Collects from all over the buffers.
+"
+"       Note this value is ignored when recher support for multibyte is enabled.
+
 
 if !exists('g:AmbiCompletion_richerSupportForMultibyte') 
     let g:AmbiCompletion_richerSupportForMultibyte = 0
+endif
+
+if !exists('g:AmbiCompletion_allBuffers') 
+    let g:AmbiCompletion_allBuffers = 0
 endif
 
 
@@ -39,29 +51,36 @@ endif
 " マルチバイト単語の抽出(split)用 正規表現:
 " \(.\zs\ze\@>\(\<\|\>\)\)
 " .\zs\ze\@>\<
-
-" あし
+"
+" あし マルチト
 " あいaiうえお アイ 12ウエオ愛上尾
 " あ12hoge34あmoge
 " アイウエオ
 
 let g:AmbiCompletionWordSplitter = '\(.\zs\ze\@>\(\<\|\>\)\)'
 
-function! g:AmbiCompletionPython(findstart, base)
-python <<EOF
-import sys
+function! g:AmbiCompletionPython(findstart, base, all_buffers)
+    let l:base = iconv(a:base, &encoding, 'utf-8')
+    let all_buffers = a:all_buffers
+silent python <<EOF
 import re
 import string
+import sys
 import vim
 
-AmbiCompletionWordSplitterWord = re.compile(r'\W+')
-AmbiCompletionWordSplitterNonword = re.compile(r'\w+')
+WORD_SPLITTER_REGEXP_WORD = re.compile(ur'\W+', re.UNICODE)
+WORD_SPLITTER_REGEXP_NONWORD = re.compile(ur'\w+', re.UNICODE)
 
-def lcs(word1, word2):
+INTERCHANGE_ENCODING = 'utf-8'
+
+def lcs(word1, word2, word1re=None):
     word1 = word1.lower()
     word2 = word2.lower()
     len1 = len(word1) + 1
     len2 = len(word2) + 1
+
+    if word1re and not word1re.search(word2):
+        return 0
 
     #print('word1: ' + word1)
     #print('word2: ' + word2)
@@ -109,41 +128,61 @@ def cmp_word_and_lcs(word1, word2):
         return 0
 
 LCSV_COEFFICIENT_THRESHOLD = 0.7
-def complete(base, enc):
-    base = base.decode(enc)
-    selflcsv = lcs(base, base)
+def complete(base, all_buffers):
+    base = base.decode(INTERCHANGE_ENCODING)
+    #basere = re.compile(u'[' + base + ']', re.IGNORECASE | re.LOCALE | re.UNICODE)
+    basere = None
+    selflcsv = lcs(base, base, None)
 
     results = []
     wordset = set()
     baselen = len(base)
-    print('baselen:' + str(baselen))
-    for line in vim.current.buffer:
-        for word in AmbiCompletionWordSplitterWord.split(line):
-            wordset.add(word)
-        for word in AmbiCompletionWordSplitterNonword.split(line):
-            wordset.add(word)
+
+    if int(all_buffers):
+        for buff in vim.buffers:
+            for line in [temp_line.decode(vim.eval('&encoding'), 'ignore') for temp_line in buff]:
+                for word in WORD_SPLITTER_REGEXP_WORD.split(line):
+                    wordset.add(word)
+                for word in WORD_SPLITTER_REGEXP_NONWORD.split(line):
+                    wordset.add(word)
+    else:
+        for line in [temp_line.decode(vim.eval('&encoding'), 'ignore') for temp_line in vim.current.buffer]:
+            for word in WORD_SPLITTER_REGEXP_WORD.split(line):
+                wordset.add(word)
+            for word in WORD_SPLITTER_REGEXP_NONWORD.split(line):
+                wordset.add(word)
     for word in wordset:
-        lcsv = lcs(base, word.decode(enc))
-        #print('word:'+word + ', lcs:'+str(lcsv))
+        lcsv = lcs(base, word, basere)
         if selflcsv * LCSV_COEFFICIENT_THRESHOLD <= lcsv:
             results.append([word, lcsv])
     results.sort(cmp=cmp_word_and_lcs)
     return results
 
-base=vim.eval('a:base')
-enc=vim.eval('&enc')
-#print('**base ' + base)
-#print('**enc ' + enc)
-#vim.command('let g:fuzzyret='+str(complete(base)))
-result = complete(base, enc)
-fuzzyret = '['
-fuzzyret += ', '.join(
-            \ ''.join(['{', "'word': ", "'", r[0].replace("'", "''"), "', 'menu': ", str(r[1]), '}']) for r in result)
-fuzzyret += ']'
-#print(fuzzyret)
-vim.command('let g:fuzzyret=' + fuzzyret)
+base = vim.eval('l:base')
+all_buffers = vim.eval('l:all_buffers')
+result = complete(base, all_buffers)
+complret = u'['
+#ft = True
+#for r in result:
+#    #vim.command('call confirm(\'' + r[0].encode(vim.eval('&encoding')) + '\')')
+#    if not ft:
+#        complret += ', '
+#    ft = False
+#    complret += u'{\'word\': \'' + r[0].replace("'", "''") + u'\', \'menu\': ' + unicode(r[1]) + u'}'
+#    #vim.command('call confirm(\"' + complret.encode(vim.eval('&encoding')) + '\")')
+#vim.command('call confirm(\'' + 'END' + '\')')
+complret += u', '.join(
+            \ u''.join([u'{\'word\':\'', r[0].replace("'", "''"), u'\',\'menu\':', unicode(r[1]), u'}']) for r in result)
+complret += u']'
+vim.command(''.join([
+            \ 'let g:complret=eval(iconv(\'',
+            \ complret.encode(INTERCHANGE_ENCODING, 'ignore').replace("'", "''"),
+            \ '\', \'', INTERCHANGE_ENCODING, '\', \'',
+            \ vim.eval('&encoding'),
+            \ '\'))'
+            \ ]))
 EOF
-    return g:fuzzyret
+    return g:complret
 endfunction
 
 function! g:AmbiCompletion(findstart, base)
@@ -173,7 +212,7 @@ function! g:AmbiCompletion(findstart, base)
 	endif
 
     if has('python') && g:AmbiCompletion_richerSupportForMultibyte == 0
-        let results = g:AmbiCompletionPython(a:findstart, a:base)
+        let results = g:AmbiCompletionPython(a:findstart, a:base, g:AmbiCompletion_allBuffers)
         "call s:HOGE('4_ ')
         return results
     endif
