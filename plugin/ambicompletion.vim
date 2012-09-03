@@ -172,14 +172,19 @@ complret = u'['
 #    #vim.command('call confirm(\"' + complret.encode(vim.eval('&encoding')) + '\")')
 #vim.command('call confirm(\'' + 'END' + '\')')
 complret += u', '.join(
-            \ u''.join([u'{\'word\':\'', r[0].replace("'", "''"), u'\',\'menu\':', unicode(r[1]), u'}']) for r in result)
+            \ u''.join([u'{\'word\':\'', r[0].replace("\\", "\\\\").replace("'", "''"), u'\',\'menu\':', unicode(r[1]), u'}']) for r in result)
 complret += u']'
+#vim.command(''.join([
+#            \ 'let g:complret=eval(iconv(\'',
+#            \ complret.encode(INTERCHANGE_ENCODING, 'ignore').replace("'", "''"),
+#            \ '\', \'', INTERCHANGE_ENCODING, '\', \'',
+#            \ vim.eval('&encoding'),
+#            \ '\'))'
+#            \ ]))
 vim.command(''.join([
-            \ 'let g:complret=eval(iconv(\'',
-            \ complret.encode(INTERCHANGE_ENCODING, 'ignore').replace("'", "''"),
-            \ '\', \'', INTERCHANGE_ENCODING, '\', \'',
-            \ vim.eval('&encoding'),
-            \ '\'))'
+            \ 'let g:complret=eval(\'',
+            \ complret.encode(vim.eval('&encoding'), 'ignore').replace("'", "''"),
+            \ '\')'
             \ ]))
 EOF
     return g:complret

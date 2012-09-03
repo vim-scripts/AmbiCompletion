@@ -9,7 +9,7 @@ Description:
   This is a fork of Word Fuzzy Completion.
   vimscript #3857
 
-  THIS IS ALPHA QUALITY.
+  THIS IS BETA QUALITY.
 
 Usage:
   Set completefunc to g:AmbiCompletion.
