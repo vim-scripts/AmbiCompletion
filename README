@@ -4,10 +4,8 @@ Description:
   This script provides an ambiguous completion functionality.
   For those who are forgetful.
 
-  This script completes a word with not only starts-with match but also ends-with and contains match.
-
   This is a fork of Word Fuzzy Completion.
-  vimscript #3857
+  (http://www.vim.org/scripts/script.php?script_id=3857)
 
   THIS IS BETA QUALITY.
 
@@ -16,24 +14,37 @@ Usage:
 
   like :set completefunc=g:AmbiCompletion
 
-  If you have +python, you will get more speed.
-
 Variables:
 
   (A right hand side value is a default value.)
 
-  g:AmbiCompletion_richerSupportForMultibyte = 0
+  g:AmbiCompletion_richerSupportForMultibyte = 1
+      (obsolete in the future, recher only)
+
       gives up completion using Python (even though you have +python),
       and enables richer extraction of multibyte characters.
 
-          0: Quicker and poorer multibyte support.
-          1: x10 Slower and richer multibyte support.
+          0: x10 quicker and poorer multibyte support. NOT TESTED WELL
+          1: Richer multibyte support.
 
   g:AmbiCompletion_allBuffers = 0
+      (obsolete in the future)
+
       decides from where to collect word samples.
 
           0: Collects from only in the current buffer.
           1: Collects from all over the buffers.
 
       Note this value is ignored when recher support for multibyte is enabled.
+
+  g:AmbiCompletion_cacheCheckpoint = 10
+
+      cache-updating interval.
+      The cache is updated when undo sequence progresses by this value.
+
+Commands:
+  
+  AmbiCompletionRefreshCache
+
+      updates the cache immediately.
 

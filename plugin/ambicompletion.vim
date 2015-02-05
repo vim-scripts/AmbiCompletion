@@ -8,56 +8,74 @@
 "   This is a fork of Word Fuzzy Completion.
 "   (http://www.vim.org/scripts/script.php?script_id=3857)
 "
-"   THIS IS ALPHA QUALITY.
+"   THIS IS BETA QUALITY.
 "
 " Usage:
 "   Set completefunc to g:AmbiCompletion.
 "
 "   like :set completefunc=g:AmbiCompletion
 "
-"   If you have +python, you will get more speed. (but poorer multibyte completion)
-"
 " Variables:
 "
 "   (A right hand side value is a default value.)
 "
-"   g:AmbiCompletion_richerSupportForMultibyte = 0
+"   g:AmbiCompletion_richerSupportForMultibyte = 1
+"       (obsolete in the future, recher only)
+"
 "       gives up completion using Python (even though you have +python),
 "       and enables richer extraction of multibyte characters.
 "
-"           0: Quicker and poorer multibyte support.
-"           1: x10 Slower and richer multibyte support.
+"           0: x10 quicker and poorer multibyte support. NOT TESTED WELL
+"           1: Richer multibyte support.
 "
 "   g:AmbiCompletion_allBuffers = 0
+"       (obsolete in the future)
+"
 "       decides from where to collect word samples.
 "
 "           0: Collects from only in the current buffer.
 "           1: Collects from all over the buffers.
 "
 "       Note this value is ignored when recher support for multibyte is enabled.
-
+"
+"   g:AmbiCompletion_cacheCheckpoint = 10
+"
+"       cache-updating interval.
+"       The cache is updated when undo sequence progresses by this value.
+" 
+" Commands:
+"   
+"   AmbiCompletionRefreshCache
+"
+"       updates the cache immediately.
+"
+"   AmbiCompletionEnableCaching
+"   AmbiCompletionDisableCaching
+"      will be disappeared
+"
 
 if !exists('g:AmbiCompletion_richerSupportForMultibyte') 
-    let g:AmbiCompletion_richerSupportForMultibyte = 0
+    let g:AmbiCompletion_richerSupportForMultibyte = 1
 endif
 
 if !exists('g:AmbiCompletion_allBuffers') 
     let g:AmbiCompletion_allBuffers = 0
 endif
 
+if !exists('g:AmbiCompletion_cacheCheckpoint') 
+    let g:AmbiCompletion_cacheCheckpoint = 10
+endif
 
-" マルチバイトを含む抽出用正規表現: \<.\{-\}.\@>\>
+let g:AmbiCompletion__wordSplitter = '\(.\zs\ze\@>\(\<\|\>\)\)'
+let g:AmbiCompletion__wordSplitter = '\>\zs\ze\<\|\<\|\>'
+let g:AmbiCompletion__wordSplitter = '\>\zs\ze\<\|\<\|\>\|\s'
 
-" マルチバイト単語の抽出(split)用 正規表現:
-" \(.\zs\ze\@>\(\<\|\>\)\)
-" .\zs\ze\@>\<
-"
-" あし マルチト
-" あいaiうえお アイ 12ウエオ愛上尾
-" あ12hoge34あmoge
-" アイウエオ
+let g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD = 0.7
 
-let g:AmbiCompletionWordSplitter = '\(.\zs\ze\@>\(\<\|\>\)\)'
+
+command! AmbiCompletionRefreshCache call <SID>forceUpdateWordsCache()
+
+
 
 function! g:AmbiCompletionPython(findstart, base, all_buffers)
     let l:base = iconv(a:base, &encoding, 'utf-8')
@@ -72,6 +90,7 @@ WORD_SPLITTER_REGEXP_WORD = re.compile(ur'\W+', re.UNICODE)
 WORD_SPLITTER_REGEXP_NONWORD = re.compile(ur'\w+', re.UNICODE)
 
 INTERCHANGE_ENCODING = 'utf-8'
+
 
 def lcs(word1, word2, word1re=None):
     word1 = word1.lower()
@@ -94,22 +113,24 @@ def lcs(word1, word2, word1re=None):
 
     for i1 in range(1, len1):
         for i2 in range(1, len2):
-            #print('word1['+str(i1-1)+']: ' + word1[i1-1])
-            #print('word2['+str(i2-1)+']: ' + word2[i2-1])
-            if word1[i1-1] == word2[i2-1]:
+            #print('word1['+str(i1 - 1)+']: ' + word1[i1 - 1])
+            #print('word2['+str(i2 - 1)+']: ' + word2[i2 - 1])
+            if word1[i1 - 1] == word2[i2 - 1]:
                 x = 1
-                if 0 <= i1-2 and 0 <= i2-2 and word1[i1-2] == word2[i2-2]:
+                if 0 <= i1 - 2 and 0 <= i2 - 2 and word1[i1 - 2] == word2[i2 - 2]:
+                    #
                     x = 2
             else:
                 x = 0
-            curr[i2] = max( prev[i2-1] + x, prev[i2], curr[i2-1] )
+            curr[i2] = max(prev[i2 - 1] + x, prev[i2], curr[i2 - 1])
             #print 'curr[i2]: ' + str(curr[i2])
         temp = prev
         prev = curr
         curr = temp
         #print prev
     #print prev
-    return prev[len2-1]
+    return prev[len2 - 1]
+
 
 def cmp_word_and_lcs(word1, word2):
     if word1[1] > word2[1]:
@@ -127,10 +148,14 @@ def cmp_word_and_lcs(word1, word2):
     else:
         return 0
 
+
 LCSV_COEFFICIENT_THRESHOLD = 0.7
+
+
 def complete(base, all_buffers):
     base = base.decode(INTERCHANGE_ENCODING)
-    #basere = re.compile(u'[' + base + ']', re.IGNORECASE | re.LOCALE | re.UNICODE)
+    #basere = re.compile(u'[' + base + ']'
+    #            \ , re.IGNORECASE | re.LOCALE | re.UNICODE)
     basere = None
     selflcsv = lcs(base, base, None)
 
@@ -140,13 +165,15 @@ def complete(base, all_buffers):
 
     if int(all_buffers):
         for buff in vim.buffers:
-            for line in [temp_line.decode(vim.eval('&encoding'), 'ignore') for temp_line in buff]:
+            for line in [temp_line.decode(vim.eval('&encoding'), 'ignore')
+                        \ for temp_line in buff]:
                 for word in WORD_SPLITTER_REGEXP_WORD.split(line):
                     wordset.add(word)
                 for word in WORD_SPLITTER_REGEXP_NONWORD.split(line):
                     wordset.add(word)
     else:
-        for line in [temp_line.decode(vim.eval('&encoding'), 'ignore') for temp_line in vim.current.buffer]:
+        for line in [temp_line.decode(vim.eval('&encoding'), 'ignore')
+                    \ for temp_line in vim.current.buffer]:
             for word in WORD_SPLITTER_REGEXP_WORD.split(line):
                 wordset.add(word)
             for word in WORD_SPLITTER_REGEXP_NONWORD.split(line):
@@ -162,36 +189,27 @@ base = vim.eval('l:base')
 all_buffers = vim.eval('l:all_buffers')
 result = complete(base, all_buffers)
 complret = u'['
-#ft = True
-#for r in result:
-#    #vim.command('call confirm(\'' + r[0].encode(vim.eval('&encoding')) + '\')')
-#    if not ft:
-#        complret += ', '
-#    ft = False
-#    complret += u'{\'word\': \'' + r[0].replace("'", "''") + u'\', \'menu\': ' + unicode(r[1]) + u'}'
-#    #vim.command('call confirm(\"' + complret.encode(vim.eval('&encoding')) + '\")')
-#vim.command('call confirm(\'' + 'END' + '\')')
 complret += u', '.join(
-            \ u''.join([u'{\'word\':\'', r[0].replace("\\", "\\\\").replace("'", "''"), u'\',\'menu\':', unicode(r[1]), u'}']) for r in result)
+                    u"{'word':'%s', 'menu':%s}" % (
+                        r[0].replace("\\", "\\\\").replace("'", "''"),
+                        unicode(r[1])
+                    )
+                    for r in result
+                )
 complret += u']'
-#vim.command(''.join([
-#            \ 'let g:complret=eval(iconv(\'',
-#            \ complret.encode(INTERCHANGE_ENCODING, 'ignore').replace("'", "''"),
-#            \ '\', \'', INTERCHANGE_ENCODING, '\', \'',
-#            \ vim.eval('&encoding'),
-#            \ '\'))'
-#            \ ]))
 vim.command(''.join([
-            \ 'let g:complret=eval(\'',
-            \ complret.encode(vim.eval('&encoding'), 'ignore').replace("'", "''"),
-            \ '\')'
-            \ ]))
+                'let g:complret=eval(\'',
+                complret.encode(vim.eval('&encoding'), 'ignore').replace("'", "''"),
+                '\')'
+            ]))
 EOF
     return g:complret
 endfunction
 
+
+
 function! g:AmbiCompletion(findstart, base)
-"call s:HOGE('1')
+"call s:HOGE('1 ' . undotree().seq_cur)
     if a:findstart
 "call s:HOGE('2')
         " Get cursor word.
@@ -211,6 +229,7 @@ function! g:AmbiCompletion(findstart, base)
         endif
     endif
     let baselen = strlen(substitute(a:base, '.', 'x', 'g'))
+    "let baselen = strlen(a:base)
 "call s:HOGE('4')
 	if baselen == 0
 		return []
@@ -218,40 +237,85 @@ function! g:AmbiCompletion(findstart, base)
 
     if has('python') && g:AmbiCompletion_richerSupportForMultibyte == 0
         let results = g:AmbiCompletionPython(a:findstart, a:base, g:AmbiCompletion_allBuffers)
-        "call s:HOGE('4_ ')
+        ""call s:HOGE('4_ ')
         return results
     endif
 
-    let selflcsv = s:AmbiCompletion__LCS(a:base, a:base)
+"call s:HOGE('4.1 updating cache')
+    call s:updateWordsCache()
+"call s:HOGE('4.1 updated cache')
+
     let CUTBACK_REGEXP = '\V\[' . join(sort(split(a:base, '\zs')), '') . ']'
+
+    "let min_word_len = (baselen SLASH threshold + 1) SLASH 2
+    " ^ causes strange syn highlighting...
+    let min_word_len = baselen / g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD / 2 + 1 / 2
 
     let results = []
     let wordset = {}
-"call s:HOGE('5')
-let HOGE_reltime_LCS_sum = 0
-    "LCS
-    for line in getline(1, '$')
-        for word in split(line, g:AmbiCompletionWordSplitter)
-"call s:HOGE('6')
-            "LCS
-let HOGE_reltime_LCS = reltime()
-            if word != '' && !has_key(wordset, word) && word =~ CUTBACK_REGEXP
-                let lcs = s:AmbiCompletion__LCS(a:base, word)
-                if 0 < lcs && baselen <= lcs * 0.7
+    if exists('s:AmbiCompletion_cache')
+"call s:HOGE('5 cache (min:' . string(min_word_len) . ')')
+
+        for word in s:AmbiCompletion_cache
+            if word == ''
+                continue
+            endif
+
+            let word_elem_len = len(split(word, '\zs'))
+            "echom word . ' ' . string(word_elem_len)
+            if word_elem_len < min_word_len
+                "echom word
+                break
+            endif
+
+            if word !~ CUTBACK_REGEXP
+                continue
+            endif
+
+            "let lcs = s:AmbiCompletion__LCS(a:base, word)
+            let lcs = s:AmbiCompletion__LCS(split(a:base, '\zs'), split(word, '\zs'))
+            if 0 < lcs && baselen <= lcs * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD
+                call add(results, [word, lcs])
+            endif
+        endfor
+"call s:HOGE('5 cache end ' . string(len(results)))
+    else
+"call s:HOGE('5 NO cache')
+        for line in getline(1, '$')
+            for word in split(line, g:AmbiCompletion__wordSplitter)
+                if word == ''
+                    continue
+                endif
+
+                let word_elem_len = len(split(word, '\zs'))
+                "echom word . ' ' . string(word_elem_len)
+                if word_elem_len < min_word_len
+                    continue
+                endif
+
+                if has_key(wordset, word)
+                    continue
+                endif
+
+                if word !~ CUTBACK_REGEXP
+                    continue
+                endif
+
+                "let lcs = s:AmbiCompletion__LCS(a:base, word)
+                let lcs = s:AmbiCompletion__LCS(split(a:base, '\zs'), split(word, '\zs'))
+                if 0 < lcs && baselen <= lcs * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD
                     call add(results, [word, lcs])
                 endif
+
                 let wordset[word] = 1
-            endif
-let HOGE_reltime_LCS_sum = HOGE_reltime_LCS_sum + str2float(reltimestr(reltime(HOGE_reltime_LCS)))
-let HOGE_reltime_LCS = reltime()
-"call s:HOGE('8')
+            endfor
         endfor
-    endfor
-call s:HOGE('9 HOGE_reltime_LCS_sum: ' . string(HOGE_reltime_LCS_sum))
+    endif
+    "call s:HOGE('6 word gathering')
 
     "LCS
     call sort(results, function('s:AmbiCompletion__compare'))
-call s:HOGE('10')
+    "call s:HOGE('7')
     return map(results, '{''word'': v:val[0], ''menu'': v:val[1]}')
 endfunction
 
@@ -303,15 +367,138 @@ function! s:AmbiCompletion__LCS(word1, word2)
         "echom string(prev)
     endfor
     "echom string(prev)
+    return prev[len2-1] "mutibyte cared
     return float2nr(round(prev[len2-1] * strlen(substitute(a:word1, '.', 'x', 'g')) * 1.0 / strlen(a:word1)))
     return prev[len2-1]
 endfunction
 
-function! s:TEST(word1, word2)
+"augroup AmbiCompletion
+"    autocmd!
+"
+"    autocmd  CursorHold   *  call <SID>updateWordsCache()
+"    autocmd  CursorHoldI  *  call <SID>updateWordsCache()
+"augroup END
+
+command! AmbiCompletionEnableCaching call <SID>enableCaching()
+function! s:enableCaching()
+    call s:disableCaching()
+
+    call s:updateWordsCache()
+
+    augroup AmbiCompletion
+        autocmd!
+        autocmd  CursorHold   *  call <SID>updateWordsCache()
+        "autocmd  CursorHoldI  *  call <SID>updateWordsCache()
+    augroup END
+endfunction
+
+command! AmbiCompletionDisableCaching call <SID>disableCaching()
+function! s:disableCaching()
+    if exists('s:AmbiCompletion_cache')
+        unlet s:AmbiCompletion_cache
+    endif
+    if exists('s:AmbiCompletion_bufnr')
+        unlet s:AmbiCompletion_bufnr
+    endif
+
+    augroup AmbiCompletion
+        autocmd!
+    augroup END
+endfunction
+
+function! s:forceUpdateWordsCache()
+    let s:AmbiCompletion_bufnr = -1
+    call s:updateWordsCache()
+endfunction
+
+function! s:updateWordsCache()
+    " bufvars
+    let last_bufnr = 0
+    if exists('s:AmbiCompletion_bufnr')
+        let last_bufnr = s:AmbiCompletion_bufnr
+    endif
+    let last_seq = 0
+    if exists('b:AmbiCompletion_seq')
+        let last_seq = b:AmbiCompletion_seq
+    endif
+
+    let curr_bufnr = bufnr('%')
+    let curr_seq = s:getLastUndoSeq()
+
+    " latest, nop
+    if curr_bufnr == last_bufnr && curr_seq < last_seq + g:AmbiCompletion_cacheCheckpoint
+        return
+    endif
+    "echom 'buff:' . last_bufnr . '->' . curr_bufnr . ', seq:' . last_seq . '->' . curr_seq
+
+    let s:AmbiCompletion_bufnr = curr_bufnr
+    let b:AmbiCompletion_seq = curr_seq + 1 "completion only operation progresses seq
+
+    " gather words
+    let cachewords = []
+    for line in getline(1, '$')
+        for word in split(line, g:AmbiCompletion__wordSplitter)
+            if word != ''
+                call add(cachewords, word)
+            endif
+        endfor
+    endfor
+    " uniq by alphabet
+    if exists('*uniq')
+        call sort(cachewords)
+        call uniq(cachewords)
+    else
+        let cwdict = {}
+        for word in cachewords
+            let cwdict[word] = 1
+        endfor
+        let cachewords = sort(keys(cwdict))
+    endif
+    " sort by length for future optimization
+    call sort(cachewords, function('s:strlencompare'))
+
+    "echom string(cachewords)
+
+    " store in cache
+    let s:AmbiCompletion_cache = cachewords
+    return
+endfunction
+
+function! s:getLastUndoSeq()
+    let ut = undotree()
+    if has_key(ut, 'seq_last')
+        return ut.seq_last
+    endif
+
+    return 0
+endfunction
+
+function! s:getCurrUndoSeq()
+    let ut = undotree()
+    if has_key(ut, 'seq_cur')
+        return ut.seq_cur
+    endif
+
+    return 0
+endfunction
+
+function! s:strlencompare(w1, w2)
+    let w1len = strlen(a:w1)
+    let w2len = strlen(a:w2)
+    if w1len < w2len
+        return 1
+    elseif w1len == w2len
+        return 0
+    else
+        return -1
+    endif
+endfunction
+
+function! s:TEST(word1, word2) "
     echom 'LCS(' . a:word1 . ', ' . a:word2 . ') => ' . string(s:AmbiCompletion__LCS(a:word1, a:word2))
 endfunction
 
-"call s:TEST('pre', 'pre')
+"call s:TEST('aaa', 'aa')
 
 let s:HOGE_RELSTART = reltime()
 function! s:HOGE(msg)
