@@ -18,25 +18,6 @@ Variables:
 
   (A right hand side value is a default value.)
 
-  g:AmbiCompletion_richerSupportForMultibyte = 1
-      (obsolete in the future, recher only)
-
-      gives up completion using Python (even though you have +python),
-      and enables richer extraction of multibyte characters.
-
-          0: x10 quicker and poorer multibyte support. NOT TESTED WELL
-          1: Richer multibyte support.
-
-  g:AmbiCompletion_allBuffers = 0
-      (obsolete in the future)
-
-      decides from where to collect word samples.
-
-          0: Collects from only in the current buffer.
-          1: Collects from all over the buffers.
-
-      Note this value is ignored when recher support for multibyte is enabled.
-
   g:AmbiCompletion_cacheCheckpoint = 10
 
       cache-updating interval.
