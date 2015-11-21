@@ -1,18 +1,22 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=4048
 
-Description:
   This script provides an ambiguous completion functionality.
+  Scanning your buffer, this completes a word to be the most similar word in
+  your buffer.
+  
   For those who are forgetful.
 
   This is a fork of Word Fuzzy Completion.
   (http://www.vim.org/scripts/script.php?script_id=3857)
 
-  THIS IS BETA QUALITY.
-
 Usage:
+
   Set completefunc to g:AmbiCompletion.
 
-  like :set completefunc=g:AmbiCompletion
+  :set completefunc=g:AmbiCompletion
+
+  "optional
+  :inoremap <C-U>  <C-X><C-U>
 
 Variables:
 

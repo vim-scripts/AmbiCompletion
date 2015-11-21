@@ -2,18 +2,24 @@
 "
 " Maintainer: Shuhei Kubota <kubota.shuhei+vim@gmail.com>
 " Description:
+"
 "   This script provides an ambiguous completion functionality.
+"   Scanning your buffer, this completes a word to be the most similar word in
+"   your buffer.
+"   
 "   For those who are forgetful.
 "
 "   This is a fork of Word Fuzzy Completion.
 "   (http://www.vim.org/scripts/script.php?script_id=3857)
 "
-"   THIS IS BETA QUALITY.
-"
 " Usage:
+"
 "   Set completefunc to g:AmbiCompletion.
 "
-"   like :set completefunc=g:AmbiCompletion
+"   :set completefunc=g:AmbiCompletion
+"
+"   "optional
+"   :inoremap <C-U>  <C-X><C-U>
 "
 " Variables:
 "
@@ -30,6 +36,21 @@
 "
 "       updates the cache immediately.
 "
+" Memo:
+"
+"   b:AmbiCompletion_seq
+"
+"      last seq number of a buffer.
+"
+"   b:AmbiCompletion_prevMiss
+"
+"      contains a to-be-completed string that had no motches.
+"      Second completion triggers force update of cache.
+"
+"
+if !exists('g:AmbiCompletion_cacheShorteningFactors')
+    let g:AmbiCompletion_cacheShorteningFactors = {'0': 0.1, '100': 0.25, '500': 0.5, '1000': 0.75, '5000': 1}
+endif
 
 if !exists('g:AmbiCompletion_cacheCheckpoint') 
     let g:AmbiCompletion_cacheCheckpoint = 10
@@ -39,6 +60,8 @@ let g:AmbiCompletion__WORD_SPLITTER = '\>\zs\ze\<\|\<\|\>\|\s'
 let g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD = 0.7
 
 command! AmbiCompletionRefreshCache call <SID>forceUpdateWordsCache()
+
+let s:recurring = 0
 
 function! g:AmbiCompletion(findstart, base)
 "call s:HOGE('1 ' . undotree().seq_cur)
@@ -68,8 +91,8 @@ function! g:AmbiCompletion(findstart, base)
 	endif
 
 "call s:HOGE('4.1 updating cache')
-    call s:updateWordsCache()
-"call s:HOGE('4.1 updated cache')
+        let updated = s:updateWordsCache()
+"call s:HOGE('4.3 updated cache')
 
     let CUTBACK_REGEXP = '\V\[' . join(sort(split(a:base, '\zs')), '') . ']'
 
@@ -115,6 +138,16 @@ function! g:AmbiCompletion(findstart, base)
     "LCS
     call sort(results, function('s:AmbiCompletion__compare'))
 "call s:HOGE('7')
+
+    if len(results) == 0 && !updated && !s:recurring
+        " detect irritating situation
+        call s:forceUpdateWordsCache()
+        let s:recurring = 1
+        let result = g:AmbiCompletion(a:findstart, a:base)
+        let s:recurring = 0
+        return result
+    endif
+
     return map(results, '{''word'': v:val[0], ''menu'': v:val[1]}')
 endfunction
 
@@ -174,6 +207,7 @@ function! s:forceUpdateWordsCache()
     call s:updateWordsCache()
 endfunction
 
+" returns updated or not
 function! s:updateWordsCache()
     " bufvars
     let last_bufnr = 0
@@ -189,10 +223,20 @@ function! s:updateWordsCache()
     let curr_seq = s:getLastUndoSeq()
 
     " latest, nop
-    if curr_bufnr == last_bufnr && curr_seq < last_seq + g:AmbiCompletion_cacheCheckpoint
-        return
+    let cp = g:AmbiCompletion_cacheCheckpoint
+    let line_count = line('$')
+    for k in keys(g:AmbiCompletion_cacheShorteningFactors)
+        let line_order = str2nr(k)
+        if line_order <= line_count
+            let cp = g:AmbiCompletion_cacheCheckpoint * g:AmbiCompletion_cacheShorteningFactors[k]
+        endif
+    endfor
+
+    "if curr_bufnr == last_bufnr && curr_seq < last_seq + g:AmbiCompletion_cacheCheckpoint
+    if curr_bufnr == last_bufnr && curr_seq < last_seq + cp
+        return 0
     endif
-    echom 'buff:' . last_bufnr . '->' . curr_bufnr . ', seq:' . last_seq . '->' . curr_seq
+    echom 'buff:' . last_bufnr . '->' . curr_bufnr . ', seq:' . last_seq . '->' . curr_seq . ', cp:' . string(cp)
 
     let s:AmbiCompletion_bufnr = curr_bufnr
     let b:AmbiCompletion_seq = curr_seq + 1 "completion only operation progresses seq
@@ -224,7 +268,7 @@ function! s:updateWordsCache()
 
     " store in cache
     let s:AmbiCompletion_cache = cachewords
-    return
+    return 1
 endfunction
 
 function! s:getLastUndoSeq()
@@ -268,4 +312,3 @@ function! s:HOGE(msg)
     echom strftime('%c') . ' ' . reltimestr(reltime(s:HOGE_RELSTART)) .  ' ' . a:msg
     let s:HOGE_RELSTART = reltime()
 endfunction
-" call s:HOGE('')
