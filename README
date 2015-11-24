@@ -1,22 +1,33 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=4048
 
   This script provides an ambiguous completion functionality.
-  Scanning your buffer, this completes a word to be the most similar word in
-  your buffer.
+
+  A long function name, tired to type, a vague memory of spelling, ...
+  Ambiguous completion supports you with similar words in your buffer.
+
+  Your type does not need to match the beginning of answer word.
+  "egining" -> "beginning"
   
   For those who are forgetful.
 
-  This is a fork of Word Fuzzy Completion.
+  This is a fork of the first version of Word Fuzzy Completion.
   (http://www.vim.org/scripts/script.php?script_id=3857)
+  adding middle-word-match, architectural changes(mainly no need +python), global candidates.
 
 Usage:
 
-  Set completefunc to g:AmbiCompletion.
+  1. Set completefunc to g:AmbiCompletion.
 
-  :set completefunc=g:AmbiCompletion
+      :set completefunc=g:AmbiCompletion
 
-  "optional
-  :inoremap <C-U>  <C-X><C-U>
+      "optional
+      :inoremap <C-U>  <C-X><C-U>
+
+  2. (optional) If you have globally useful dictionary, then
+
+      :AmbiCompletionAddGlobal  my/favorite/dictfile
+      :AmbiCompletionAddGlobal  my/favorite/another
+      "this makes completion actions slow down
 
 Variables:
 
@@ -27,9 +38,20 @@ Variables:
       cache-updating interval.
       The cache is updated when undo sequence progresses by this value.
 
+  g:AmbiCompletion_cacheShorteningFactors = {'0': 0.1, '100': 0.25, '500': 0.5, '1000': 0.75, '5000': 1}
+
+      cach-updating factors. {'line-order': cache-updating factor, ...}
+      In small size file, caches are updated frequently. In large size file,
+      caches are updated less frequently.
+
 Commands:
   
   AmbiCompletionRefreshCache
 
-      updates the cache immediately.
+      updates the cache in a current buffer immediately.
+  
+  AmbiCompletionAddGlobal {filename}...
+
+      adds words in {filename} into word candidates.
+      Multiple {filename} are allowed.
 

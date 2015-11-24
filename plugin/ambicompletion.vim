@@ -4,22 +4,33 @@
 " Description:
 "
 "   This script provides an ambiguous completion functionality.
-"   Scanning your buffer, this completes a word to be the most similar word in
-"   your buffer.
+"
+"   A long function name, tired to type, a vague memory of spelling, ...
+"   Ambiguous completion supports you with similar words in your buffer.
+"
+"   Your type does not need to match the beginning of answer word.
+"   "egining" -> "beginning"
 "   
 "   For those who are forgetful.
 "
-"   This is a fork of Word Fuzzy Completion.
+"   This is a fork of the first version of Word Fuzzy Completion.
 "   (http://www.vim.org/scripts/script.php?script_id=3857)
+"   adding middle-word-match, architectural changes(mainly no need +python), global candidates.
 "
 " Usage:
 "
-"   Set completefunc to g:AmbiCompletion.
+"   1. Set completefunc to g:AmbiCompletion.
 "
-"   :set completefunc=g:AmbiCompletion
+"       :set completefunc=g:AmbiCompletion
 "
-"   "optional
-"   :inoremap <C-U>  <C-X><C-U>
+"       "optional
+"       :inoremap <C-U>  <C-X><C-U>
+"
+"   2. (optional) If you have globally useful dictionary, then
+"
+"       :AmbiCompletionAddGlobal  my/favorite/dictfile
+"       :AmbiCompletionAddGlobal  my/favorite/another
+"       "this makes completion actions slow down
 "
 " Variables:
 "
@@ -29,47 +40,60 @@
 "
 "       cache-updating interval.
 "       The cache is updated when undo sequence progresses by this value.
+"
+"   g:AmbiCompletion_cacheShorteningFactors = {'0': 0.1, '100': 0.25, '500': 0.5, '1000': 0.75, '5000': 1}
+"
+"       cach-updating factors. {'line-order': cache-updating factor, ...}
+"       In small size file, caches are updated frequently. In large size file,
+"       caches are updated less frequently.
 " 
 " Commands:
 "   
 "   AmbiCompletionRefreshCache
 "
-"       updates the cache immediately.
+"       updates the cache in a current buffer immediately.
+"   
+"   AmbiCompletionAddGlobal {filename}...
+"
+"       adds words in {filename} into word candidates.
+"       Multiple {filename} are allowed.
 "
 " Memo:
+"
+"   g:AmbiCompletion__DEBUG = 0
+"   
+"       outputs (does :echom) each completion logs.
 "
 "   b:AmbiCompletion_seq
 "
 "      last seq number of a buffer.
+"      Used for updating caches of a current buffer.  (curr_seq < last_seq + cp*factor)
 "
-"   b:AmbiCompletion_prevMiss
-"
-"      contains a to-be-completed string that had no motches.
-"      Second completion triggers force update of cache.
-"
-"
+
 if !exists('g:AmbiCompletion_cacheShorteningFactors')
     let g:AmbiCompletion_cacheShorteningFactors = {'0': 0.1, '100': 0.25, '500': 0.5, '1000': 0.75, '5000': 1}
 endif
 
-if !exists('g:AmbiCompletion_cacheCheckpoint') 
+if !exists('g:AmbiCompletion_cacheCheckpoint')
     let g:AmbiCompletion_cacheCheckpoint = 10
 endif
 
 let g:AmbiCompletion__WORD_SPLITTER = '\>\zs\ze\<\|\<\|\>\|\s'
-let g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD = 0.7
+let g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD = 0.57 " neet->neat ok
+let g:AmbiCompletion__DEBUG = 0
 
 command! AmbiCompletionRefreshCache call <SID>forceUpdateWordsCache()
+command! -nargs=+ -complete=file  AmbiCompletionAddGlobal call <SID>addGlobal(<f-args>)
 
 let s:recurring = 0
 
 function! g:AmbiCompletion(findstart, base)
-"call s:HOGE('1 ' . undotree().seq_cur)
+
+    " Find a target word
+
     if a:findstart
-"call s:HOGE('2')
         " Get cursor word.
         let cur_text = strpart(getline('.'), 0, col('.') - 1)
-"call s:HOGE('3')
         "return match(cur_text, '\V\w\+\$')
 
         " I want get a last word(maybe a multi-byte char)!!
@@ -83,61 +107,101 @@ function! g:AmbiCompletion(findstart, base)
             return strridx(cur_text, last_word)
         endif
     endif
+
+    " Complete
+call s:HOGE('=== start completion ===')
+
+    " Care about a multi-byte word
     let baselen = strlen(substitute(a:base, '.', 'x', 'g'))
+    let base_self_lcsv = s:AmbiCompletion__LCS(split(a:base, '\zs'), split(a:base, '\zs'))
     "let baselen = strlen(a:base)
-"call s:HOGE('4')
+
 	if baselen == 0
 		return []
 	endif
 
-"call s:HOGE('4.1 updating cache')
-        let updated = s:updateWordsCache()
-"call s:HOGE('4.3 updated cache')
+call s:HOGE('vvv updating cache vvv')
+    " Updating may be skipped internally
+"echom string(b:AmbiCompletion_cache)
+    let updated = s:updateWordsCache()
+"echom '=> updated ='.string(updated)
+"echom string(b:AmbiCompletion_cache)
+call s:HOGE('^^^ updated cache ^^^')
 
-    let CUTBACK_REGEXP = '\V\[' . join(sort(split(a:base, '\zs')), '') . ']'
-
-    let min_word_len = (baselen / g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD + 1) 
-                \ / 2
+    " Candidates need contain at least one char in a:base
+    let CONTAINDEDIN_REGEXP = '\V\[' . join(sort(split(a:base, '\zs')), '') . ']'
+    " Candidates need have their length at least considered-similar LSV value
+    let min_word_elem_len = (base_self_lcsv * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD + 1) / 2
 
     let results = []
     let wordset = {}
-"call s:HOGE('5 cache (min:' . string(min_word_len) . ')')
 
-    for word in s:AmbiCompletion_cache
-        if word == ''
-            continue
+call s:HOGE('vvv merging global candidates vvv')
+    " shallow-copied OR DEEP-COPIED
+    let candidates = b:AmbiCompletion_cache
+
+    " if there are global candidates, merge them into l:candidates
+    if len(s:AmbiCompletion__global) > 0
+        let candidates = copy(b:AmbiCompletion_cache)
+        call extend(candidates, s:AmbiCompletion__global)
+
+        " uniq by alphabet
+        if exists('*uniq')
+            call sort(candidates)
+            call uniq(candidates)
+        else
+            let cwdict = {}
+            for word in candidates
+                let cwdict[word] = 1
+            endfor
+            let candidates = sort(keys(cwdict))
         endif
 
+        " sort by length for future optimization
+        call sort(candidates, function('s:strlencompare'))
+
+        echom 'candidates:' . string(len(candidates)) . ', buffer:' . string(len(b:AmbiCompletion_cache)) . ', global:' . string(len(s:AmbiCompletion__global))
+    endif
+call s:HOGE('^^^ merged global candidates ^^^')
+
+call s:HOGE('vvv pre-filtering candidates('. string(len(b:AmbiCompletion_cache)) . ') vvv')
+    "let candidates = copy(b:AmbiCompletion_cache)
+    "call filter(candidates, 'v:val =~ ''' . CONTAINDEDIN_REGEXP . '''')
+    "call filter(candidates, 'len(split(v:val, ''\zs'')) >= ' . string(min_word_elem_len))
+    "call filter(candidates, string(base_self_lcsv * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD) . ' <= (len(split(v:val, ''\zs'')) - len(split(substitute(v:val, ''' . CONTAINDEDIN_REGEXP . ''', '''', ''g''), ''\zs''))) * 2 - 1')
+call s:HOGE('^^^ pre-filtered candidates('. string(len(candidates)) . ') ^^^')
+
+call s:HOGE('vvv filtering candidates vvv')
+    for word in candidates
         let word_elem_len = len(split(word, '\zs'))
-        "echom word . ' ' . string(word_elem_len)
-        if word_elem_len < min_word_len
-            "echom word
+        if word_elem_len < min_word_elem_len
             break
         endif
 
-        if word !~ CUTBACK_REGEXP
+        if word !~ CONTAINDEDIN_REGEXP
             continue
         endif
 
+        " a count of matched (a:base and word) elements
+        let matched_elems_len = word_elem_len - len(split(substitute(word, CONTAINDEDIN_REGEXP, '', 'g'), '\zs'))
         " simulate ideal max lcs value
-        let len_match_elems = word_elem_len - len(split(substitute(word, CUTBACK_REGEXP, '', 'g'), '\zs'))
-        let sim_ideal_lcsv = len_match_elems * 2 - 1
-        if baselen >= sim_ideal_lcsv * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD
-            "echom 'SKIPPED ' . word . ' ideal=' . string(sim_ideal_lcsv) . ', baselen=' . string(baselen)
+        let matched_ideal_lcsv = matched_elems_len * 2 - 1
+        if base_self_lcsv * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD > matched_ideal_lcsv
             continue
         endif
 
-        "let lcs = s:AmbiCompletion__LCS(a:base, word)
-        let lcs = s:AmbiCompletion__LCS(split(a:base, '\zs'), split(word, '\zs'))
-        if 0 < lcs && baselen <= lcs * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD
-            call add(results, [word, lcs])
+        "let lcsv = s:AmbiCompletion__LCS(a:base, word)
+        let lcsv = s:AmbiCompletion__LCS(split(a:base, '\zs'), split(word, '\zs'))
+        if 0 < lcsv && base_self_lcsv * g:AmbiCompletion__LCSV_COEFFICIENT_THRESHOLD <= lcsv
+            call add(results, [word, lcsv])
+        else
         endif
     endfor
-"call s:HOGE('6 word gathering ' . string(len(results)))
+call s:HOGE('^^^ filtered candidates'.len(results).' ^^^')
 
     "LCS
     call sort(results, function('s:AmbiCompletion__compare'))
-"call s:HOGE('7')
+call s:HOGE('sorted results')
 
     if len(results) == 0 && !updated && !s:recurring
         " detect irritating situation
@@ -148,6 +212,7 @@ function! g:AmbiCompletion(findstart, base)
         return result
     endif
 
+call s:HOGE('=== end completion ===')
     return map(results, '{''word'': v:val[0], ''menu'': v:val[1]}')
 endfunction
 
@@ -203,23 +268,20 @@ function! s:AmbiCompletion__LCS(word1, word2)
 endfunction
 
 function! s:forceUpdateWordsCache()
-    let s:AmbiCompletion_bufnr = -1
+    if exists('b:AmbiCompletion_cache')
+        unlet b:AmbiCompletion_cache
+    endif
     call s:updateWordsCache()
 endfunction
 
 " returns updated or not
 function! s:updateWordsCache()
     " bufvars
-    let last_bufnr = 0
-    if exists('s:AmbiCompletion_bufnr')
-        let last_bufnr = s:AmbiCompletion_bufnr
-    endif
     let last_seq = 0
     if exists('b:AmbiCompletion_seq')
         let last_seq = b:AmbiCompletion_seq
     endif
 
-    let curr_bufnr = bufnr('%')
     let curr_seq = s:getLastUndoSeq()
 
     " latest, nop
@@ -232,13 +294,11 @@ function! s:updateWordsCache()
         endif
     endfor
 
-    "if curr_bufnr == last_bufnr && curr_seq < last_seq + g:AmbiCompletion_cacheCheckpoint
-    if curr_bufnr == last_bufnr && curr_seq < last_seq + cp
+    if exists('b:AmbiCompletion_cache') && curr_seq < last_seq + cp
         return 0
     endif
-    echom 'buff:' . last_bufnr . '->' . curr_bufnr . ', seq:' . last_seq . '->' . curr_seq . ', cp:' . string(cp)
+"echom 'seq:' . last_seq . '->' . curr_seq . ', cp:' . string(cp)
 
-    let s:AmbiCompletion_bufnr = curr_bufnr
     let b:AmbiCompletion_seq = curr_seq + 1 "completion only operation progresses seq
 
     " gather words
@@ -266,9 +326,46 @@ function! s:updateWordsCache()
 
     "echom string(cachewords)
 
-    " store in cache
-    let s:AmbiCompletion_cache = cachewords
+    " store cache
+    let b:AmbiCompletion_cache = cachewords
     return 1
+endfunction
+
+let s:AmbiCompletion__global = []
+let s:AmbiCompletion__globalFilenames = []
+function! s:addGlobal(...)
+    let s:AmbiCompletion__global = []
+    call extend(s:AmbiCompletion__globalFilenames, a:000)
+
+    " gather words
+    let cachewords = []
+    for f in s:AmbiCompletion__globalFilenames
+        for line in readfile(f)
+            for word in split(line, g:AmbiCompletion__WORD_SPLITTER)
+                if word != ''
+                    call add(cachewords, word)
+                endif
+            endfor
+        endfor
+    endfor
+
+    " uniq by alphabet
+    if exists('*uniq')
+        call sort(cachewords)
+        call uniq(cachewords)
+    else
+        let cwdict = {}
+        for word in cachewords
+            let cwdict[word] = 1
+        endfor
+        let cachewords = sort(keys(cwdict))
+    endif
+
+    " sort by length for future optimization
+    call sort(cachewords, function('s:strlencompare'))
+
+    " store
+    let s:AmbiCompletion__global = cachewords
 endfunction
 
 function! s:getLastUndoSeq()
@@ -305,10 +402,12 @@ function! s:TEST(word1, word2) "
     echom 'LCS(' . a:word1 . ', ' . a:word2 . ') => ' . string(s:AmbiCompletion__LCS(a:word1, a:word2))
 endfunction
 
-"call s:TEST('aaa', 'aa')
+"call s:TEST('ne', 'ne')
 
 let s:HOGE_RELSTART = reltime()
 function! s:HOGE(msg)
-    echom strftime('%c') . ' ' . reltimestr(reltime(s:HOGE_RELSTART)) .  ' ' . a:msg
-    let s:HOGE_RELSTART = reltime()
+    if g:AmbiCompletion__DEBUG
+        echom strftime('%c') . ' ' . reltimestr(reltime(s:HOGE_RELSTART)) .  ' ' . a:msg
+        let s:HOGE_RELSTART = reltime()
+    endif
 endfunction
